@@ -8,9 +8,18 @@ schema: paperclip/v1
 #
 # Agents are role-agnostic. Any agent can fill any pipeline role
 # (spec_writer, spec_validator, executor, reviewer). Role assignment
-# is configured per-project in pipeline-config.yaml.
+# is configured per-project in ~/.paperclip/pipelines/{project}.yaml.
 
 agents:
+  coordinator:
+    adapter:
+      type: claude_local
+      config:
+        cwd: "{{PROJECT_REPO_PATH}}"
+        model: claude-sonnet-4-6
+        maxTurnsPerRun: 100
+        dangerouslySkipPermissions: false
+
   claude:
     adapter:
       type: claude_local
