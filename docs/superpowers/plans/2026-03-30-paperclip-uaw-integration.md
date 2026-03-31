@@ -1,32 +1,37 @@
-# Paperclip + UAW v3 Integration Implementation Plan
+# Paperclip + UAW v3 Integration Plan (Configuration Only)
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add pipeline routing, role maps, phase classification, and kickoff prompt templating to Paperclip so it can orchestrate UAW v3 agent workflows across projects.
+**Goal:** Configure Paperclip to orchestrate UAW v3 agent workflows across multiple projects using only config files, company packages, and UAW templates — no Paperclip core code changes.
 
-**Architecture:** New `pipelineConfig` jsonb field on projects stores phase rules and role assignments. New `phase` column on issues tracks task phase. A new `pipeline` service creates sub-tasks per pipeline stage, chains stages on completion, and builds kickoff prompts injected into the heartbeat context. UAW v3 templates are amended with three multi-agent clauses.
+**Architecture:** A Paperclip company package defines the company, per-project agents, and project workspaces. UAW v3 templates (with amendments) live in each target repo. The role map is documented config that guides manual task assignment until Paperclip gains native pipeline routing.
 
-**Tech Stack:** TypeScript, Drizzle ORM (PostgreSQL), Zod validators, Vitest, Express routes
+**Tech Stack:** Markdown, YAML (.paperclip.yaml), UAW v3 templates
 
 ---
 
 ## File Structure
 
 ```
-New files:
-  packages/shared/src/validators/pipeline.ts          — Zod schemas for pipeline config and phase
-  server/src/services/pipeline.ts                      — Pipeline routing, stage chaining, kickoff prompt builder
-  server/src/__tests__/pipeline-service.test.ts         — Tests for pipeline service
-  UAW-v3/amendments.md                                 — UAW v3 amendments for multi-agent support
+New/modified files (all in the paperclip repo, not core code):
 
-Modified files:
-  packages/shared/src/constants.ts                     — Add ISSUE_PHASES constant
-  packages/db/src/schema/projects.ts                   — Add pipelineConfig jsonb column
-  packages/db/src/schema/issues.ts                     — Add phase and pipelineRole columns
-  packages/shared/src/validators/project.ts            — Add pipelineConfig to project validators
-  packages/shared/src/validators/issue.ts              — Add phase and pipelineRole to issue validators
-  server/src/services/issues.ts                        — Hook stage chaining into status updates
-  server/src/services/heartbeat.ts                     — Inject kickoff prompt into context
+  UAW-v3/amendments.md                            — Three multi-agent amendments
+  UAW-v3/uaw-templates/                            — Extracted & amended templates ready to copy
+    CLAUDE.md                                      — Updated UAW operating contract
+    resume.md                                      — Resume template
+    decisions.md                                   — Decisions template
+    specs/spec-template.md                         — Spec template
+    archive/                                       — Empty archive dir
+    pipeline-config.yaml                           — Role map & phase rules template
+  company-package/                                 — Importable Paperclip company package
+    COMPANY.md                                     — Company definition
+    agents/
+      claude-executor/AGENTS.md                    — Claude agent template (per-project)
+      codex-spec-writer/AGENTS.md                  — Codex agent template (per-project)
+      antigravity-reviewer/AGENTS.md               — AntiGravity agent template (per-project)
+      gemini-executor/AGENTS.md                    — Gemini agent template (per-project)
+    .paperclip.yaml                                — Adapter configs & env inputs
+    README.md                                      — Setup instructions
 ```
 
 ---
@@ -38,10 +43,12 @@ Modified files:
 
 - [ ] **Step 1: Create the amendments file**
 
+Create `UAW-v3/amendments.md`:
+
 ```markdown
 # UAW v3 Amendments for Multi-Agent Orchestration
 
-Date: 2026-03-30
+Date: 2026-03-31
 Status: accepted
 
 These amendments extend the UAW v3 spec to support orchestrated multi-agent
@@ -88,1083 +95,609 @@ git commit -m "docs: add UAW v3 amendments for multi-agent orchestration"
 
 ---
 
-### Task 2: Add Phase Constants and Pipeline Validators
+### Task 2: Extract and Update UAW v3 Templates
 
 **Files:**
-- Modify: `packages/shared/src/constants.ts`
-- Create: `packages/shared/src/validators/pipeline.ts`
+- Create: `UAW-v3/uaw-templates/` (full directory)
 
-- [ ] **Step 1: Write the failing test**
+The current templates are locked in a .zip file. Extract them, apply the amendments inline, and make them ready to copy into any project repo.
 
-Create `packages/shared/src/__tests__/pipeline-validators.test.ts`:
-
-```typescript
-import { describe, expect, it } from "vitest";
-import { pipelineConfigSchema, ISSUE_PHASES, PIPELINE_ROLES } from "../validators/pipeline.js";
-
-describe("pipelineConfigSchema", () => {
-  it("accepts a valid pipeline config", () => {
-    const config = {
-      phaseRules: {
-        exploratory: ["executor"],
-        structural: ["spec_writer", "executor"],
-        production: ["spec_writer", "spec_validator", "executor", "reviewer"],
-        durable_knowledge: ["spec_writer", "spec_validator", "executor", "reviewer"],
-      },
-      roleAssignments: {
-        spec_writer: "agent-uuid-1",
-        spec_validator: "agent-uuid-2",
-        executor: "agent-uuid-2",
-        reviewer: "agent-uuid-3",
-      },
-    };
-    const result = pipelineConfigSchema.safeParse(config);
-    expect(result.success).toBe(true);
-  });
-
-  it("accepts fan-out role assignments (array of agent IDs)", () => {
-    const config = {
-      phaseRules: {
-        exploratory: ["executor"],
-      },
-      roleAssignments: {
-        executor: "agent-uuid-1",
-        spec_writer: ["agent-uuid-1", "agent-uuid-2", "agent-uuid-3"],
-      },
-    };
-    const result = pipelineConfigSchema.safeParse(config);
-    expect(result.success).toBe(true);
-  });
-
-  it("rejects empty phaseRules", () => {
-    const config = {
-      phaseRules: {},
-      roleAssignments: { executor: "agent-uuid-1" },
-    };
-    const result = pipelineConfigSchema.safeParse(config);
-    expect(result.success).toBe(false);
-  });
-
-  it("rejects invalid pipeline role names in phaseRules", () => {
-    const config = {
-      phaseRules: {
-        exploratory: ["invalid_role"],
-      },
-      roleAssignments: {},
-    };
-    const result = pipelineConfigSchema.safeParse(config);
-    expect(result.success).toBe(false);
-  });
-});
-
-describe("ISSUE_PHASES", () => {
-  it("contains the four UAW phases", () => {
-    expect(ISSUE_PHASES).toEqual([
-      "exploratory",
-      "structural",
-      "production",
-      "durable_knowledge",
-    ]);
-  });
-});
-
-describe("PIPELINE_ROLES", () => {
-  it("contains the four pipeline roles", () => {
-    expect(PIPELINE_ROLES).toEqual([
-      "spec_writer",
-      "spec_validator",
-      "executor",
-      "reviewer",
-    ]);
-  });
-});
-```
-
-- [ ] **Step 2: Run test to verify it fails**
-
-Run: `cd packages/shared && npx vitest run src/__tests__/pipeline-validators.test.ts`
-Expected: FAIL — modules not found
-
-- [ ] **Step 3: Add ISSUE_PHASES and PIPELINE_ROLES to constants**
-
-In `packages/shared/src/constants.ts`, add after the `ISSUE_PRIORITIES` block:
-
-```typescript
-export const ISSUE_PHASES = [
-  "exploratory",
-  "structural",
-  "production",
-  "durable_knowledge",
-] as const;
-export type IssuePhase = (typeof ISSUE_PHASES)[number];
-
-export const PIPELINE_ROLES = [
-  "spec_writer",
-  "spec_validator",
-  "executor",
-  "reviewer",
-] as const;
-export type PipelineRole = (typeof PIPELINE_ROLES)[number];
-```
-
-- [ ] **Step 4: Create the pipeline validators**
-
-Create `packages/shared/src/validators/pipeline.ts`:
-
-```typescript
-import { z } from "zod";
-import { ISSUE_PHASES, PIPELINE_ROLES } from "../constants.js";
-
-export { ISSUE_PHASES, PIPELINE_ROLES };
-
-const pipelineRoleSchema = z.enum(PIPELINE_ROLES);
-
-const phaseRulesSchema = z
-  .record(z.enum(ISSUE_PHASES), z.array(pipelineRoleSchema).min(1))
-  .refine((rules) => Object.keys(rules).length > 0, {
-    message: "phaseRules must define at least one phase",
-  });
-
-const roleAssignmentValueSchema = z.union([
-  z.string().uuid(),
-  z.array(z.string().uuid()).min(1),
-]);
-
-const roleAssignmentsSchema = z.record(pipelineRoleSchema, roleAssignmentValueSchema);
-
-export const pipelineConfigSchema = z.object({
-  phaseRules: phaseRulesSchema,
-  roleAssignments: roleAssignmentsSchema,
-});
-
-export type PipelineConfig = z.infer<typeof pipelineConfigSchema>;
-```
-
-- [ ] **Step 5: Export from shared package index**
-
-In `packages/shared/src/index.ts` (or wherever validators are re-exported), add:
-
-```typescript
-export {
-  pipelineConfigSchema,
-  type PipelineConfig,
-} from "./validators/pipeline.js";
-```
-
-Also export the new constants from `constants.ts` (they should already be exported if the file uses named exports).
-
-- [ ] **Step 6: Run test to verify it passes**
-
-Run: `cd packages/shared && npx vitest run src/__tests__/pipeline-validators.test.ts`
-Expected: PASS
-
-- [ ] **Step 7: Commit**
+- [ ] **Step 1: Extract templates from zip**
 
 ```bash
-git add packages/shared/src/constants.ts packages/shared/src/validators/pipeline.ts packages/shared/src/__tests__/pipeline-validators.test.ts packages/shared/src/index.ts
-git commit -m "feat: add pipeline config validators and phase/role constants"
+cd UAW-v3 && unzip -o UAW-os-templates.zip -d . && mv uaw-templates/* uaw-templates-tmp/ 2>/dev/null; rm -rf uaw-templates; mv uaw-templates-tmp uaw-templates
 ```
 
+Verify the extracted structure:
+```
+UAW-v3/uaw-templates/
+  CLAUDE.md
+  resume.md
+  decisions.md
+  specs/spec-template.md
+  archive/
+  README.md
+```
+
+- [ ] **Step 2: Update CLAUDE.md with amendments**
+
+Add the three amendments to `UAW-v3/uaw-templates/CLAUDE.md`. After the `## When Uncertain` section, add:
+
+```markdown
 ---
 
-### Task 3: Database Migration — Add Phase to Issues and PipelineConfig to Projects
+## Multi-Agent Pipeline Rules
 
-**Files:**
-- Modify: `packages/db/src/schema/issues.ts`
-- Modify: `packages/db/src/schema/projects.ts`
+When operating as part of a multi-agent pipeline orchestrated by Paperclip or
+another coordinator:
 
-- [ ] **Step 1: Add `phase` and `pipelineRole` columns to the issues schema**
+### Session Handoff
+When multiple agents work a task sequentially, each agent completes the full
+shutdown protocol before the next agent starts. The incoming agent reads
+`resume.md` written by the previous agent as its starting context.
 
-In `packages/db/src/schema/issues.ts`, add after the `priority` field (line 33):
+### Role Scoping
+When you receive a scoped role assignment, operate only within that role's
+boundaries. A spec_writer produces the spec and completes shutdown. An executor
+implements. A reviewer validates. No role exceeds its boundary.
 
-```typescript
-    phase: text("phase"),
-    pipelineRole: text("pipeline_role"),
-    pipelineParentId: uuid("pipeline_parent_id").references((): AnyPgColumn => issues.id),
+### Externally Assigned Phase
+Phase is assigned by the task creator, not derived by you. You receive phase
+in the kickoff context and apply the corresponding verification depth from
+the Phase Classification table above.
 ```
 
-Add an index in the table's index block:
+- [ ] **Step 3: Create pipeline-config.yaml template**
 
-```typescript
-    pipelineParentIdx: index("issues_pipeline_parent_idx").on(table.companyId, table.pipelineParentId),
+Create `UAW-v3/uaw-templates/pipeline-config.yaml`:
+
+```yaml
+# Pipeline Configuration — Role Map & Phase Rules
+# Copy this into your project repo alongside the UAW files.
+# This file is read by the human operator (you) to guide task assignment.
+# When Paperclip gains native pipeline routing, this becomes machine-readable config.
+
+project_name: "{{PROJECT_NAME}}"
+
+# Phase rules: which pipeline stages run for each phase.
+# Stages execute in order. Each stage maps to a role.
+phase_rules:
+  exploratory:
+    - executor
+  structural:
+    - spec_writer
+    - executor
+  production:
+    - spec_writer
+    - spec_validator
+    - executor
+    - reviewer
+  durable_knowledge:
+    - spec_writer
+    - spec_validator
+    - executor
+    - reviewer
+
+# Role assignments: which Paperclip agent fills each role.
+# Use the agent name as registered in Paperclip.
+# For fan-out (competing outputs), list multiple agents.
+role_assignments:
+  spec_writer: "{{CODEX_AGENT_NAME}}"
+  spec_validator: "{{CLAUDE_AGENT_NAME}}"
+  executor: "{{CLAUDE_AGENT_NAME}}"
+  reviewer: "{{ANTIGRAVITY_AGENT_NAME}}"
+
+# Approval gates: where you (the operator) review before proceeding.
+# These are the stages where the pipeline pauses for your sign-off.
+approval_gates:
+  - after: spec_writer      # Review the spec before execution begins
+  - after: reviewer          # Review the final result before marking done
 ```
 
-- [ ] **Step 2: Add `pipelineConfig` column to the projects schema**
+- [ ] **Step 4: Update the README.md with pipeline setup instructions**
 
-In `packages/db/src/schema/projects.ts`, add after the `executionWorkspacePolicy` field (line 20):
+Replace `UAW-v3/uaw-templates/README.md` with:
 
-```typescript
-    pipelineConfig: jsonb("pipeline_config").$type<Record<string, unknown>>(),
+```markdown
+# UAW-os Project Templates
+
+## Setup
+
+To initialize a new project under the Universal Agentic Workflow:
+
+1. Copy this folder into your project root:
+   ```
+   cp -r UAW-v3/uaw-templates/ your-project/
+   ```
+
+2. Your project will have:
+   ```
+   your-project/
+     CLAUDE.md            ← UAW operating contract (agents read this first)
+     resume.md            ← current state — the one file to read on return
+     decisions.md         ← append-only architectural decisions
+     specs/               ← spec files for non-exploratory work
+       spec-template.md   ← copy and rename per spec
+     archive/             ← dated resume.md copies from prior sessions
+     pipeline-config.yaml ← role map and phase rules for this project
+   ```
+
+3. Fill in `resume.md` — project name, phase, objective.
+
+4. Fill in `pipeline-config.yaml` — replace placeholders with your Paperclip agent names.
+
+## Paperclip Integration
+
+This project uses Paperclip as the orchestration layer. Paperclip assigns agents
+to tasks; agents follow the UAW contract in CLAUDE.md autonomously.
+
+**Separation of concerns:**
+- Paperclip manages: who runs, when, budget, approvals, audit trail
+- UAW manages: what files to read, authority order, status transitions, proof, shutdown
+
+**If Paperclip is removed,** nothing changes except who kicks off the job.
+
+## Agent Read Order
+
+On every session start, the agent reads:
+1. `CLAUDE.md` (this contract)
+2. `resume.md`
+3. `decisions.md`
+4. Active spec (if referenced in resume)
+
+## Session End
+
+On every session end, the agent:
+1. Copies `resume.md` to `archive/resume-YYYY-MM-DD.md`
+2. Writes fresh `resume.md` with current state
+3. Updates `decisions.md` if any decisions were made
 ```
-
-- [ ] **Step 3: Generate the migration**
-
-Run: `cd packages/db && npx drizzle-kit generate`
-
-This will create a new migration SQL file in `packages/db/src/migrations/`. Verify it contains:
-
-```sql
-ALTER TABLE "issues" ADD COLUMN "phase" text;
-ALTER TABLE "issues" ADD COLUMN "pipeline_role" text;
-ALTER TABLE "issues" ADD COLUMN "pipeline_parent_id" uuid;
-ALTER TABLE "projects" ADD COLUMN "pipeline_config" jsonb;
-ALTER TABLE "issues" ADD CONSTRAINT "..." FOREIGN KEY ("pipeline_parent_id") REFERENCES "issues"("id");
-CREATE INDEX "issues_pipeline_parent_idx" ON "issues" USING btree ("company_id","pipeline_parent_id");
-```
-
-- [ ] **Step 4: Run the migration**
-
-Run: `cd packages/db && npx drizzle-kit migrate`
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add packages/db/src/schema/issues.ts packages/db/src/schema/projects.ts packages/db/src/migrations/
-git commit -m "feat: add phase/pipelineRole to issues and pipelineConfig to projects"
+git add UAW-v3/uaw-templates/
+git commit -m "docs: extract and update UAW v3 templates with pipeline amendments"
 ```
 
 ---
 
-### Task 4: Update Issue and Project Validators
+### Task 3: Create Paperclip Company Package — Company & Agent Definitions
 
 **Files:**
-- Modify: `packages/shared/src/validators/issue.ts`
-- Modify: `packages/shared/src/validators/project.ts`
+- Create: `company-package/COMPANY.md`
+- Create: `company-package/agents/claude-executor/AGENTS.md`
+- Create: `company-package/agents/codex-spec-writer/AGENTS.md`
+- Create: `company-package/agents/antigravity-reviewer/AGENTS.md`
+- Create: `company-package/agents/gemini-executor/AGENTS.md`
 
-- [ ] **Step 1: Add phase and pipelineRole to issue validators**
+- [ ] **Step 1: Create COMPANY.md**
 
-In `packages/shared/src/validators/issue.ts`, add imports:
+Create `company-package/COMPANY.md`:
 
-```typescript
-import { ISSUE_PHASES, PIPELINE_ROLES } from "../constants.js";
+```markdown
+---
+schema: agentcompanies/v1
+name: "Ker's Lab"
+description: >
+  Solo developer operation managing multiple AI agent workflows across projects.
+  Uses UAW v3 as the in-repo contract and Paperclip as the replaceable orchestrator.
+---
+
+# Ker's Lab
+
+A one-person AI-augmented development operation. Each project gets its own set of
+agent instances configured for that project's stack, budget, and workflow needs.
+
+## How It Works
+
+1. Each project repo contains UAW v3 files (CLAUDE.md, resume.md, decisions.md, specs/)
+2. Agents are registered per-project in Paperclip with stack-specific configs
+3. The operator creates tasks in Paperclip, sets the phase, and assigns agents
+4. Agents follow the UAW contract autonomously — Paperclip tracks status and budget
+5. The operator reviews at approval gates (after spec, after review)
+
+## Agent Roles
+
+- **spec_writer** — Writes spec files from task descriptions
+- **spec_validator** — Reviews specs for ambiguity, consistency, feasibility
+- **executor** — Implements the work following the spec
+- **reviewer** — Validates the result against the spec and done condition
 ```
 
-In `createIssueSchema`, add after the `priority` field:
+- [ ] **Step 2: Create Claude executor agent**
 
-```typescript
-  phase: z.enum(ISSUE_PHASES).optional().nullable(),
-  pipelineRole: z.enum(PIPELINE_ROLES).optional().nullable(),
-  pipelineParentId: z.string().uuid().optional().nullable(),
+Create `company-package/agents/claude-executor/AGENTS.md`:
+
+```markdown
+---
+name: Claude Executor
+role: engineer
+title: "Implementation & Planning Agent"
+icon: code
+capabilities: >
+  Primary execution agent. Reads UAW contract, follows specs, writes code,
+  updates resume.md and decisions.md. Also serves as spec validator when
+  assigned that role.
+---
+
+# Claude Executor
+
+Implementation and planning agent powered by Claude Code (claude_local adapter).
+
+## Responsibilities
+- Execute implementation tasks following UAW v3 specs
+- Validate specs for ambiguity and feasibility (when assigned spec_validator role)
+- Plan implementation approaches from specs
+- Follow UAW session protocol (startup: read resume/decisions/spec, shutdown: archive and update)
+
+## Per-Project Configuration
+
+When registering this agent for a project, configure:
+- `cwd`: Path to the project repo
+- `model`: Claude model to use (default: claude-sonnet-4-6 for execution, claude-opus-4-6 for planning)
+- Budget: Set per-project based on expected work volume
+
+## Naming Convention
+
+Register as `Claude-{ProjectName}` (e.g., `Claude-TFLabs`, `Claude-OpenBrain`).
 ```
 
-The `updateIssueSchema` already extends `createIssueSchema.partial()`, so it will inherit these fields.
+- [ ] **Step 3: Create Codex spec writer agent**
 
-- [ ] **Step 2: Add pipelineConfig to project validators**
+Create `company-package/agents/codex-spec-writer/AGENTS.md`:
 
-In `packages/shared/src/validators/project.ts`, add import:
+```markdown
+---
+name: Codex Spec Writer
+role: engineer
+title: "Specification Writer"
+icon: file-code
+capabilities: >
+  Writes detailed spec files from task descriptions. Analyzes codebase context,
+  defines objectives, scope, constraints, and done conditions following UAW v3
+  spec template format.
+---
 
-```typescript
-import { pipelineConfigSchema } from "./pipeline.js";
+# Codex Spec Writer
+
+Specification writing agent powered by Codex (codex_local adapter).
+
+## Responsibilities
+- Write spec files in `specs/` following the UAW v3 spec template
+- Analyze the codebase to understand context before writing specs
+- Define clear objectives, scope boundaries, constraints, and verifiable done conditions
+- Follow UAW session protocol
+
+## Per-Project Configuration
+
+When registering this agent for a project, configure:
+- `cwd`: Path to the project repo
+- Budget: Lower than executor (spec writing is cheaper)
+
+## Naming Convention
+
+Register as `Codex-{ProjectName}` (e.g., `Codex-TFLabs`, `Codex-OpenBrain`).
 ```
 
-In the `projectFields` object, add after `executionWorkspacePolicy`:
+- [ ] **Step 4: Create AntiGravity reviewer agent**
 
-```typescript
-  pipelineConfig: pipelineConfigSchema.optional().nullable(),
+Create `company-package/agents/antigravity-reviewer/AGENTS.md`:
+
+```markdown
+---
+name: AntiGravity Reviewer
+role: qa
+title: "Validation & Review Agent"
+icon: search
+capabilities: >
+  Validates implementation against specs. Checks done conditions, runs tests,
+  reviews code quality. Produces proof artifacts before marking review complete.
+---
+
+# AntiGravity Reviewer
+
+Validation agent powered by AntiGravity (process adapter).
+
+## Responsibilities
+- Validate that implementation satisfies the spec's done condition
+- Run tests and verify code quality
+- Produce proof (test output, review notes) before marking review complete
+- Follow UAW session protocol
+
+## Per-Project Configuration
+
+When registering this agent for a project, configure:
+- `command`: AntiGravity CLI invocation command
+- `cwd`: Path to the project repo
+- Budget: Set based on review complexity
+
+## Naming Convention
+
+Register as `AntiGrav-{ProjectName}` (e.g., `AntiGrav-TFLabs`, `AntiGrav-OpenBrain`).
 ```
 
-- [ ] **Step 3: Run the typecheck to verify**
+- [ ] **Step 5: Create Gemini executor agent**
 
-Run: `cd packages/shared && npx tsc --noEmit`
-Expected: PASS (no type errors)
+Create `company-package/agents/gemini-executor/AGENTS.md`:
 
-- [ ] **Step 4: Commit**
+```markdown
+---
+name: Gemini Executor
+role: engineer
+title: "Backup Execution Agent"
+icon: zap
+capabilities: >
+  Backup execution agent. Same responsibilities as Claude Executor but powered
+  by Gemini CLI. Used when Claude is unavailable or for workload distribution.
+---
+
+# Gemini Executor
+
+Backup execution agent powered by Gemini CLI (gemini_local adapter).
+
+## Responsibilities
+- Same as Claude Executor — implement tasks following UAW v3 specs
+- Follow UAW session protocol
+- Available as alternate executor in role assignments
+
+## Per-Project Configuration
+
+When registering this agent for a project, configure:
+- `cwd`: Path to the project repo
+- Budget: Set per-project
+
+## Naming Convention
+
+Register as `Gemini-{ProjectName}` (e.g., `Gemini-TFLabs`, `Gemini-OpenBrain`).
+```
+
+- [ ] **Step 6: Commit**
 
 ```bash
-git add packages/shared/src/validators/issue.ts packages/shared/src/validators/project.ts
-git commit -m "feat: add phase and pipelineConfig to issue/project validators"
+git add company-package/
+git commit -m "docs: create Paperclip company package with agent definitions"
 ```
 
 ---
 
-### Task 5: Pipeline Service — Stage Creation
+### Task 4: Create .paperclip.yaml Adapter Configs
 
 **Files:**
-- Create: `server/src/services/pipeline.ts`
-- Create: `server/src/__tests__/pipeline-service.test.ts`
+- Create: `company-package/.paperclip.yaml`
 
-- [ ] **Step 1: Write the failing test for stage creation**
+- [ ] **Step 1: Create the vendor extension file**
 
-Create `server/src/__tests__/pipeline-service.test.ts`:
+Create `company-package/.paperclip.yaml`:
 
-```typescript
-import { describe, expect, it, beforeAll, afterAll, afterEach } from "vitest";
-import { randomUUID } from "node:crypto";
-import { getEmbeddedPostgresTestSupport } from "./helpers/embedded-postgres.js";
-import { createDb } from "./helpers/embedded-postgres.js";
-import { startEmbeddedPostgresTestDatabase } from "./helpers/embedded-postgres.js";
-import { companies } from "@paperclipai/db/schema";
-import { agents } from "@paperclipai/db/schema";
-import { projects } from "@paperclipai/db/schema";
-import { issues } from "@paperclipai/db/schema";
-import { goals } from "@paperclipai/db/schema";
-import { pipelineService } from "../services/pipeline.js";
-import type { PipelineConfig } from "@paperclipai/shared/validators/pipeline";
+```yaml
+schema: paperclip/v1
 
-const embeddedPostgresSupport = await getEmbeddedPostgresTestSupport();
-const describeDb = embeddedPostgresSupport.supported ? describe : describe.skip;
+# Agent adapter configurations.
+# These are TEMPLATES — when importing for a specific project, update:
+#   - cwd paths to point to the actual project repo
+#   - budget values for the project
+#   - model choices if needed
+#
+# To create per-project agents, import this company package once,
+# then use the Paperclip API/CLI to create project-specific agent
+# instances with the correct cwd and config overrides.
 
-describeDb("pipelineService", () => {
-  let db: ReturnType<typeof createDb>;
-  let svc: ReturnType<typeof pipelineService>;
-  let tempDb: Awaited<ReturnType<typeof startEmbeddedPostgresTestDatabase>> | null = null;
+agents:
+  claude-executor:
+    adapter:
+      type: claude_local
+      config:
+        cwd: "{{PROJECT_REPO_PATH}}"
+        model: claude-sonnet-4-6
+        maxTurnsPerRun: 300
+        dangerouslySkipPermissions: false
 
-  const companyId = randomUUID();
-  const goalId = randomUUID();
-  const projectId = randomUUID();
-  const specWriterAgentId = randomUUID();
-  const specValidatorAgentId = randomUUID();
-  const executorAgentId = randomUUID();
-  const reviewerAgentId = randomUUID();
+  codex-spec-writer:
+    adapter:
+      type: codex_local
+      config:
+        cwd: "{{PROJECT_REPO_PATH}}"
+        dangerouslyBypassApprovalsAndSandbox: false
 
-  const pipelineConfig: PipelineConfig = {
-    phaseRules: {
-      exploratory: ["executor"],
-      structural: ["spec_writer", "executor"],
-      production: ["spec_writer", "spec_validator", "executor", "reviewer"],
-    },
-    roleAssignments: {
-      spec_writer: specWriterAgentId,
-      spec_validator: specValidatorAgentId,
-      executor: executorAgentId,
-      reviewer: reviewerAgentId,
-    },
-  };
+  antigravity-reviewer:
+    adapter:
+      type: process
+      config:
+        command: "antigravity"
+        cwd: "{{PROJECT_REPO_PATH}}"
+        timeoutSec: 300
 
-  beforeAll(async () => {
-    tempDb = await startEmbeddedPostgresTestDatabase("paperclip-pipeline-");
-    db = createDb(tempDb.connectionString);
-    svc = pipelineService(db);
-
-    await db.insert(companies).values({
-      id: companyId,
-      name: "Test Co",
-      issuePrefix: "TST",
-      requireBoardApprovalForNewAgents: false,
-    });
-    await db.insert(goals).values({
-      id: goalId,
-      companyId,
-      title: "Test Goal",
-      level: "company",
-      status: "active",
-      ownerAgentId: executorAgentId,
-    });
-    await db.insert(projects).values({
-      id: projectId,
-      companyId,
-      name: "Test Project",
-      goalId,
-      pipelineConfig: pipelineConfig as unknown as Record<string, unknown>,
-    });
-    for (const [id, name] of [
-      [specWriterAgentId, "Codex"],
-      [specValidatorAgentId, "Claude-Validator"],
-      [executorAgentId, "Claude"],
-      [reviewerAgentId, "AntiGrav"],
-    ] as const) {
-      await db.insert(agents).values({
-        id,
-        companyId,
-        name,
-        adapterType: "process",
-      });
-    }
-  }, 20_000);
-
-  afterEach(async () => {
-    await db.delete(issues).where();
-  });
-
-  afterAll(async () => {
-    await tempDb?.cleanup();
-  });
-
-  describe("createPipelineStages", () => {
-    it("creates sub-tasks for a production-phase issue", async () => {
-      const parentIssue = await db
-        .insert(issues)
-        .values({
-          companyId,
-          projectId,
-          goalId,
-          title: "Build feature X",
-          phase: "production",
-          issueNumber: 1,
-          identifier: "TST-1",
-        })
-        .returning()
-        .then((rows) => rows[0]!);
-
-      const stages = await svc.createPipelineStages(parentIssue.id, pipelineConfig);
-
-      expect(stages).toHaveLength(4);
-      expect(stages[0]!.pipelineRole).toBe("spec_writer");
-      expect(stages[0]!.assigneeAgentId).toBe(specWriterAgentId);
-      expect(stages[1]!.pipelineRole).toBe("spec_validator");
-      expect(stages[2]!.pipelineRole).toBe("executor");
-      expect(stages[3]!.pipelineRole).toBe("reviewer");
-
-      for (const stage of stages) {
-        expect(stage.pipelineParentId).toBe(parentIssue.id);
-        expect(stage.phase).toBe("production");
-        expect(stage.projectId).toBe(projectId);
-        expect(stage.companyId).toBe(companyId);
-      }
-    });
-
-    it("creates only executor for exploratory phase", async () => {
-      const parentIssue = await db
-        .insert(issues)
-        .values({
-          companyId,
-          projectId,
-          goalId,
-          title: "Explore idea Y",
-          phase: "exploratory",
-          issueNumber: 2,
-          identifier: "TST-2",
-        })
-        .returning()
-        .then((rows) => rows[0]!);
-
-      const stages = await svc.createPipelineStages(parentIssue.id, pipelineConfig);
-
-      expect(stages).toHaveLength(1);
-      expect(stages[0]!.pipelineRole).toBe("executor");
-      expect(stages[0]!.assigneeAgentId).toBe(executorAgentId);
-    });
-
-    it("creates fan-out sub-tasks when role maps to multiple agents", async () => {
-      const fanOutConfig: PipelineConfig = {
-        phaseRules: { structural: ["spec_writer", "executor"] },
-        roleAssignments: {
-          spec_writer: [specWriterAgentId, executorAgentId],
-          executor: executorAgentId,
-        },
-      };
-
-      const parentIssue = await db
-        .insert(issues)
-        .values({
-          companyId,
-          projectId,
-          goalId,
-          title: "Feature with competing specs",
-          phase: "structural",
-          issueNumber: 3,
-          identifier: "TST-3",
-        })
-        .returning()
-        .then((rows) => rows[0]!);
-
-      const stages = await svc.createPipelineStages(parentIssue.id, fanOutConfig);
-
-      // 2 spec_writer fan-out + 1 executor = 3 sub-tasks
-      expect(stages).toHaveLength(3);
-      const specWriters = stages.filter((s) => s.pipelineRole === "spec_writer");
-      expect(specWriters).toHaveLength(2);
-    });
-
-    it("returns empty array when phase has no rules", async () => {
-      const parentIssue = await db
-        .insert(issues)
-        .values({
-          companyId,
-          projectId,
-          goalId,
-          title: "No rules task",
-          phase: "durable_knowledge",
-          issueNumber: 4,
-          identifier: "TST-4",
-        })
-        .returning()
-        .then((rows) => rows[0]!);
-
-      const stages = await svc.createPipelineStages(parentIssue.id, pipelineConfig);
-      expect(stages).toHaveLength(0);
-    });
-  });
-});
+  gemini-executor:
+    adapter:
+      type: gemini_local
+      config:
+        cwd: "{{PROJECT_REPO_PATH}}"
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
-
-Run: `cd server && npx vitest run src/__tests__/pipeline-service.test.ts`
-Expected: FAIL — module `../services/pipeline.js` not found
-
-- [ ] **Step 3: Write the pipeline service — stage creation**
-
-Create `server/src/services/pipeline.ts`:
-
-```typescript
-import { eq, and } from "drizzle-orm";
-import { issues } from "@paperclipai/db/schema";
-import type { PipelineConfig, PipelineRole } from "@paperclipai/shared/validators/pipeline";
-import type { Db } from "../db.js";
-
-export function pipelineService(db: Db) {
-  return {
-    /**
-     * Create pipeline stage sub-tasks for a parent issue based on its phase
-     * and the project's pipeline config.
-     */
-    createPipelineStages: async (
-      parentIssueId: string,
-      config: PipelineConfig,
-    ) => {
-      const parent = await db
-        .select()
-        .from(issues)
-        .where(eq(issues.id, parentIssueId))
-        .then((rows) => rows[0] ?? null);
-
-      if (!parent || !parent.phase) return [];
-
-      const phase = parent.phase as keyof PipelineConfig["phaseRules"];
-      const roles = config.phaseRules[phase];
-      if (!roles || roles.length === 0) return [];
-
-      const stageInserts: (typeof issues.$inferInsert)[] = [];
-      let stageNumber = 0;
-
-      for (const role of roles) {
-        const assignment = config.roleAssignments[role as PipelineRole];
-        if (!assignment) continue;
-
-        const agentIds = Array.isArray(assignment) ? assignment : [assignment];
-
-        for (const agentId of agentIds) {
-          stageNumber++;
-          stageInserts.push({
-            companyId: parent.companyId,
-            projectId: parent.projectId,
-            projectWorkspaceId: parent.projectWorkspaceId,
-            goalId: parent.goalId,
-            parentId: parent.parentId,
-            pipelineParentId: parent.id,
-            title: `[${role}] ${parent.title}`,
-            description: parent.description,
-            status: "backlog",
-            priority: parent.priority,
-            phase: parent.phase,
-            pipelineRole: role,
-            assigneeAgentId: agentId,
-            issueNumber: (parent.issueNumber ?? 0) * 100 + stageNumber,
-            identifier: `${parent.identifier}-S${stageNumber}`,
-            originKind: "manual",
-          });
-        }
-      }
-
-      if (stageInserts.length === 0) return [];
-
-      const created = await db
-        .insert(issues)
-        .values(stageInserts)
-        .returning();
-
-      return created;
-    },
-
-    /**
-     * Get the next pending pipeline stage for a parent issue.
-     * Returns null if all stages are complete or no stages exist.
-     */
-    getNextPendingStage: async (pipelineParentId: string, config: PipelineConfig) => {
-      const parent = await db
-        .select()
-        .from(issues)
-        .where(eq(issues.id, pipelineParentId))
-        .then((rows) => rows[0] ?? null);
-
-      if (!parent || !parent.phase) return null;
-
-      const phase = parent.phase as keyof PipelineConfig["phaseRules"];
-      const roles = config.phaseRules[phase];
-      if (!roles) return null;
-
-      const stages = await db
-        .select()
-        .from(issues)
-        .where(eq(issues.pipelineParentId, pipelineParentId));
-
-      // Walk roles in order; find the first role where not all sub-tasks are done
-      for (const role of roles) {
-        const roleStages = stages.filter((s) => s.pipelineRole === role);
-        if (roleStages.length === 0) continue;
-
-        const allDone = roleStages.every(
-          (s) => s.status === "done" || s.status === "cancelled",
-        );
-        if (!allDone) {
-          // Return the first backlog stage for this role
-          const pending = roleStages.find((s) => s.status === "backlog");
-          return pending ?? null;
-        }
-      }
-
-      return null;
-    },
-
-    /**
-     * Check if all pipeline stages for the current role group are complete.
-     * If so, return the next role's stages that should be activated.
-     * Returns null if there's nothing to advance.
-     */
-    advancePipeline: async (
-      completedStageId: string,
-      config: PipelineConfig,
-    ): Promise<typeof issues.$inferSelect[] | null> => {
-      const completedStage = await db
-        .select()
-        .from(issues)
-        .where(eq(issues.id, completedStageId))
-        .then((rows) => rows[0] ?? null);
-
-      if (!completedStage?.pipelineParentId || !completedStage.pipelineRole) {
-        return null;
-      }
-
-      const parent = await db
-        .select()
-        .from(issues)
-        .where(eq(issues.id, completedStage.pipelineParentId))
-        .then((rows) => rows[0] ?? null);
-
-      if (!parent?.phase) return null;
-
-      const phase = parent.phase as keyof PipelineConfig["phaseRules"];
-      const roles = config.phaseRules[phase];
-      if (!roles) return null;
-
-      // Get all stages for this pipeline
-      const allStages = await db
-        .select()
-        .from(issues)
-        .where(eq(issues.pipelineParentId, completedStage.pipelineParentId));
-
-      // Check if all stages for the completed role are done
-      const completedRole = completedStage.pipelineRole;
-      const sameRoleStages = allStages.filter((s) => s.pipelineRole === completedRole);
-      const allRoleDone = sameRoleStages.every(
-        (s) => s.status === "done" || s.status === "cancelled",
-      );
-
-      if (!allRoleDone) return null;
-
-      // Find the next role in the pipeline
-      const currentRoleIndex = roles.indexOf(completedRole as PipelineRole);
-      if (currentRoleIndex === -1 || currentRoleIndex >= roles.length - 1) {
-        // Last role — check if all stages are done, mark parent done
-        const allDone = allStages.every(
-          (s) => s.status === "done" || s.status === "cancelled",
-        );
-        if (allDone) {
-          await db
-            .update(issues)
-            .set({ status: "in_review", updatedAt: new Date() })
-            .where(eq(issues.id, completedStage.pipelineParentId));
-        }
-        return null;
-      }
-
-      const nextRole = roles[currentRoleIndex + 1]!;
-      const nextStages = allStages.filter(
-        (s) => s.pipelineRole === nextRole && s.status === "backlog",
-      );
-
-      // Move next stages to todo so they can be picked up
-      if (nextStages.length > 0) {
-        for (const stage of nextStages) {
-          await db
-            .update(issues)
-            .set({ status: "todo", updatedAt: new Date() })
-            .where(eq(issues.id, stage.id));
-        }
-      }
-
-      return nextStages.length > 0 ? nextStages : null;
-    },
-
-    /**
-     * Build the kickoff prompt that Paperclip injects into the heartbeat context.
-     * This is the single integration point between Paperclip and UAW.
-     */
-    buildKickoffPrompt: (issue: {
-      title: string;
-      description: string | null;
-      phase: string | null;
-      pipelineRole: string | null;
-    }, project: {
-      name: string;
-    }, workspace: {
-      cwd: string | null;
-    }): string => {
-      const lines = [
-        `Project: ${project.name}`,
-        `Workspace: ${workspace.cwd ?? "unknown"}`,
-        `Task: ${issue.title}`,
-      ];
-      if (issue.description) {
-        lines.push(`Task Description: ${issue.description}`);
-      }
-      if (issue.phase) {
-        lines.push(`Phase: ${issue.phase}`);
-      }
-      if (issue.pipelineRole) {
-        lines.push(`Role: ${issue.pipelineRole}`);
-      }
-      return lines.join("\n");
-    },
-  };
-}
-```
-
-- [ ] **Step 4: Run test to verify it passes**
-
-Run: `cd server && npx vitest run src/__tests__/pipeline-service.test.ts`
-Expected: PASS
-
-- [ ] **Step 5: Commit**
+- [ ] **Step 2: Commit**
 
 ```bash
-git add server/src/services/pipeline.ts server/src/__tests__/pipeline-service.test.ts
-git commit -m "feat: add pipeline service with stage creation, advancement, and kickoff builder"
+git add company-package/.paperclip.yaml
+git commit -m "docs: add .paperclip.yaml adapter configs for company package"
 ```
 
 ---
 
-### Task 6: Pipeline Advancement Tests
+### Task 5: Create Company Package README (Setup Guide)
 
 **Files:**
-- Modify: `server/src/__tests__/pipeline-service.test.ts`
+- Create: `company-package/README.md`
 
-- [ ] **Step 1: Add tests for advancePipeline**
+- [ ] **Step 1: Create the setup guide**
 
-Append to the `describeDb("pipelineService")` block in the test file:
+Create `company-package/README.md`:
 
-```typescript
-  describe("advancePipeline", () => {
-    it("advances to next role when all stages for current role are done", async () => {
-      const parentIssue = await db
-        .insert(issues)
-        .values({
-          companyId,
-          projectId,
-          goalId,
-          title: "Pipeline test",
-          phase: "structural",
-          issueNumber: 10,
-          identifier: "TST-10",
-        })
-        .returning()
-        .then((rows) => rows[0]!);
+```markdown
+# Ker's Lab — Paperclip Company Package
 
-      const stages = await svc.createPipelineStages(parentIssue.id, pipelineConfig);
-      const specWriterStage = stages.find((s) => s.pipelineRole === "spec_writer")!;
+## Prerequisites
 
-      // Mark spec_writer as done
-      await db
-        .update(issues)
-        .set({ status: "done" })
-        .where(eq(issues.id, specWriterStage.id));
+1. Paperclip server running (`paperclipai run`)
+2. UAW v3 templates copied into each project repo (see `UAW-v3/uaw-templates/`)
 
-      const nextStages = await svc.advancePipeline(specWriterStage.id, pipelineConfig);
+## Quick Setup
 
-      expect(nextStages).not.toBeNull();
-      expect(nextStages!).toHaveLength(1);
-      expect(nextStages![0]!.pipelineRole).toBe("executor");
-      expect(nextStages![0]!.status).toBe("todo");
-    });
-
-    it("does not advance when fan-out stages are still pending", async () => {
-      const fanOutConfig: PipelineConfig = {
-        phaseRules: { structural: ["spec_writer", "executor"] },
-        roleAssignments: {
-          spec_writer: [specWriterAgentId, executorAgentId],
-          executor: executorAgentId,
-        },
-      };
-
-      const parentIssue = await db
-        .insert(issues)
-        .values({
-          companyId,
-          projectId,
-          goalId,
-          title: "Fan-out pipeline test",
-          phase: "structural",
-          issueNumber: 11,
-          identifier: "TST-11",
-        })
-        .returning()
-        .then((rows) => rows[0]!);
-
-      const stages = await svc.createPipelineStages(parentIssue.id, fanOutConfig);
-      const specWriters = stages.filter((s) => s.pipelineRole === "spec_writer");
-
-      // Only mark one spec_writer as done
-      await db
-        .update(issues)
-        .set({ status: "done" })
-        .where(eq(issues.id, specWriters[0]!.id));
-
-      const nextStages = await svc.advancePipeline(specWriters[0]!.id, fanOutConfig);
-      expect(nextStages).toBeNull();
-    });
-
-    it("moves parent to in_review when last stage completes", async () => {
-      const parentIssue = await db
-        .insert(issues)
-        .values({
-          companyId,
-          projectId,
-          goalId,
-          title: "Final stage test",
-          phase: "exploratory",
-          issueNumber: 12,
-          identifier: "TST-12",
-        })
-        .returning()
-        .then((rows) => rows[0]!);
-
-      const stages = await svc.createPipelineStages(parentIssue.id, pipelineConfig);
-      const executorStage = stages.find((s) => s.pipelineRole === "executor")!;
-
-      await db
-        .update(issues)
-        .set({ status: "done" })
-        .where(eq(issues.id, executorStage.id));
-
-      await svc.advancePipeline(executorStage.id, pipelineConfig);
-
-      const updatedParent = await db
-        .select()
-        .from(issues)
-        .where(eq(issues.id, parentIssue.id))
-        .then((rows) => rows[0]!);
-
-      expect(updatedParent.status).toBe("in_review");
-    });
-  });
-
-  describe("buildKickoffPrompt", () => {
-    it("builds the handoff prompt with all fields", () => {
-      const prompt = svc.buildKickoffPrompt(
-        {
-          title: "Build auth system",
-          description: "Add JWT-based authentication",
-          phase: "production",
-          pipelineRole: "executor",
-        },
-        { name: "TFLabs" },
-        { cwd: "/home/user/tflabs" },
-      );
-
-      expect(prompt).toContain("Project: TFLabs");
-      expect(prompt).toContain("Workspace: /home/user/tflabs");
-      expect(prompt).toContain("Task: Build auth system");
-      expect(prompt).toContain("Task Description: Add JWT-based authentication");
-      expect(prompt).toContain("Phase: production");
-      expect(prompt).toContain("Role: executor");
-    });
-
-    it("omits missing optional fields", () => {
-      const prompt = svc.buildKickoffPrompt(
-        { title: "Quick fix", description: null, phase: null, pipelineRole: null },
-        { name: "OpenBrain" },
-        { cwd: "/home/user/openbrain" },
-      );
-
-      expect(prompt).toContain("Task: Quick fix");
-      expect(prompt).not.toContain("Phase:");
-      expect(prompt).not.toContain("Role:");
-      expect(prompt).not.toContain("Task Description:");
-    });
-  });
-```
-
-- [ ] **Step 2: Run test to verify it passes**
-
-Run: `cd server && npx vitest run src/__tests__/pipeline-service.test.ts`
-Expected: PASS
-
-- [ ] **Step 3: Commit**
+### 1. Import the company
 
 ```bash
-git add server/src/__tests__/pipeline-service.test.ts
-git commit -m "test: add pipeline advancement and kickoff prompt builder tests"
+paperclipai company import ./company-package --new-company-name "Ker's Lab"
+```
+
+This creates the company with template agents. The agents won't work yet —
+they need per-project configuration.
+
+### 2. For each project, create project-specific agents
+
+Use the Paperclip API or CLI to create agents with the correct repo path.
+
+Example for TFLabs (Python project):
+
+```bash
+# Create the project with workspace
+paperclipai issue create --title "Setup TFLabs project" --status done
+
+# Via API:
+# POST /api/companies/{companyId}/projects
+# {
+#   "name": "TFLabs",
+#   "description": "Python AI/LangGraph platform",
+#   "workspace": {
+#     "sourceType": "local_path",
+#     "cwd": "/Users/ker/_Projects/Active/MentorMesh/TFLabs",
+#     "isPrimary": true
+#   }
+# }
+#
+# POST /api/companies/{companyId}/agents
+# {
+#   "name": "Claude-TFLabs",
+#   "role": "engineer",
+#   "title": "TFLabs Implementation Agent",
+#   "icon": "code",
+#   "capabilities": "Executes implementation tasks for TFLabs (Python/LangGraph)",
+#   "adapterType": "claude_local",
+#   "adapterConfig": {
+#     "cwd": "/Users/ker/_Projects/Active/MentorMesh/TFLabs",
+#     "model": "claude-sonnet-4-6"
+#   },
+#   "budgetMonthlyCents": 5000
+# }
+```
+
+Repeat for each agent type (Codex-TFLabs, AntiGrav-TFLabs) and each project.
+
+### 3. Copy UAW templates into each project repo
+
+```bash
+cp -r UAW-v3/uaw-templates/ /path/to/project/
+```
+
+Edit `resume.md` and `pipeline-config.yaml` with project-specific values.
+
+### 4. Create your first task
+
+In the Paperclip UI or CLI, create an issue:
+- Set the project
+- Set the title and description
+- Assign to the appropriate agent based on the pipeline-config.yaml role map
+
+## Pipeline Workflow (Manual)
+
+Until Paperclip gains native pipeline routing, follow this process:
+
+1. **You** evaluate the project and decide what to do
+2. **You** create a Paperclip issue with title, description
+3. **You** check `pipeline-config.yaml` for the project's phase rules
+4. **For production/durable phases:**
+   a. Assign to spec_writer agent → wait for completion
+   b. (Optional) Assign spec_validator agent → wait for review
+   c. Review and approve the spec yourself
+   d. Assign to executor agent → wait for completion
+   e. Assign to reviewer agent → wait for validation
+   f. Review and approve the result
+5. **For exploratory phases:**
+   a. Assign directly to executor agent → review when done
+6. **For structural phases:**
+   a. Assign to spec_writer → approve spec → assign to executor → review
+
+## Role Map Reference
+
+See each project's `pipeline-config.yaml` for the authoritative role assignments.
+The default template is:
+
+| Role | Default Agent | Responsibility |
+|------|--------------|----------------|
+| spec_writer | Codex-{Project} | Write specs from task descriptions |
+| spec_validator | Claude-{Project} | Review specs for quality |
+| executor | Claude-{Project} | Implement the work |
+| reviewer | AntiGrav-{Project} | Validate against done condition |
+
+## Graduating to Automation
+
+When Paperclip adds native pipeline routing:
+1. The `pipeline-config.yaml` format becomes machine-readable project config
+2. Paperclip auto-creates sub-tasks per pipeline stage
+3. Paperclip auto-assigns agents based on the role map
+4. You only intervene at approval gates
+```
+
+- [ ] **Step 2: Commit**
+
+```bash
+git add company-package/README.md
+git commit -m "docs: add company package setup guide with manual pipeline workflow"
 ```
 
 ---
 
-### Task 7: Hook Pipeline Advancement Into Issue Status Updates
+### Task 6: Verify Package Structure and Final Cleanup
 
-**Files:**
-- Modify: `server/src/services/issues.ts`
+**Files:** None created — verification only
 
-This is the integration point where Paperclip chains pipeline stages. When a pipeline stage issue transitions to `done`, we check if the pipeline should advance.
-
-- [ ] **Step 1: Add pipeline service import to issues service**
-
-At the top of `server/src/services/issues.ts`, add:
-
-```typescript
-import { pipelineService } from "./pipeline.js";
-```
-
-- [ ] **Step 2: Find the status update logic and add the pipeline hook**
-
-In the `update()` method of the issues service, find where status is set to `"done"` (inside the `applyStatusSideEffects` call or the transaction block). After the status update completes and the transaction commits, add a post-commit hook.
-
-Locate the section where the updated issue is returned (after the main update transaction). Add after it:
-
-```typescript
-    // Pipeline advancement: when a pipeline stage completes, advance the pipeline
-    if (
-      patch.status === "done" &&
-      updated.pipelineParentId &&
-      updated.pipelineRole
-    ) {
-      const pipeline = pipelineService(db);
-      const parentIssue = await db
-        .select()
-        .from(issues)
-        .where(eq(issues.id, updated.pipelineParentId))
-        .then((rows) => rows[0] ?? null);
-
-      if (parentIssue?.projectId) {
-        const project = await db
-          .select()
-          .from(projects)
-          .where(eq(projects.id, parentIssue.projectId))
-          .then((rows) => rows[0] ?? null);
-
-        if (project?.pipelineConfig) {
-          const { pipelineConfigSchema } = await import("@paperclipai/shared/validators/pipeline");
-          const parsed = pipelineConfigSchema.safeParse(project.pipelineConfig);
-          if (parsed.success) {
-            const advancedStages = await pipeline.advancePipeline(updated.id, parsed.data);
-            // Stages moved to "todo" — assignment wakeup will be triggered
-            // by the caller if assigneeAgentId is set on those stages.
-          }
-        }
-      }
-    }
-```
-
-Note: Import `projects` from the schema if not already imported.
-
-- [ ] **Step 3: Run the existing issues service tests to verify no regressions**
-
-Run: `cd server && npx vitest run src/__tests__/issues-service.test.ts`
-Expected: PASS (all existing tests still pass)
-
-- [ ] **Step 4: Commit**
+- [ ] **Step 1: Verify the complete file structure**
 
 ```bash
-git add server/src/services/issues.ts
-git commit -m "feat: hook pipeline advancement into issue status transitions"
+find UAW-v3/uaw-templates company-package -type f | sort
 ```
 
----
-
-### Task 8: Inject Kickoff Prompt Into Heartbeat Context
-
-**Files:**
-- Modify: `server/src/services/heartbeat.ts`
-
-- [ ] **Step 1: Add pipeline service import**
-
-At the top of `server/src/services/heartbeat.ts`, add:
-
-```typescript
-import { pipelineService } from "./pipeline.js";
+Expected output:
+```
+UAW-v3/uaw-templates/CLAUDE.md
+UAW-v3/uaw-templates/README.md
+UAW-v3/uaw-templates/decisions.md
+UAW-v3/uaw-templates/pipeline-config.yaml
+UAW-v3/uaw-templates/resume.md
+UAW-v3/uaw-templates/specs/spec-template.md
+company-package/.paperclip.yaml
+company-package/COMPANY.md
+company-package/README.md
+company-package/agents/antigravity-reviewer/AGENTS.md
+company-package/agents/claude-executor/AGENTS.md
+company-package/agents/codex-spec-writer/AGENTS.md
+company-package/agents/gemini-executor/AGENTS.md
 ```
 
-- [ ] **Step 2: Inject kickoff prompt into context**
-
-In the `executeRun()` function, find the section where `context.paperclipWorkspace` is set (around line 2326). After the workspace context is built and before the adapter is invoked, add:
-
-```typescript
-    // Inject pipeline kickoff prompt if issue has phase/role metadata
-    if (issueContext) {
-      const issueRecord = await db
-        .select({
-          phase: issues.phase,
-          pipelineRole: issues.pipelineRole,
-          title: issues.title,
-          description: issues.description,
-        })
-        .from(issues)
-        .where(eq(issues.id, issueContext.id))
-        .then((rows) => rows[0] ?? null);
-
-      if (issueRecord?.phase || issueRecord?.pipelineRole) {
-        const pipeline = pipelineService(db);
-        const projectRecord = executionProjectId
-          ? await db
-              .select({ name: projects.name })
-              .from(projects)
-              .where(eq(projects.id, executionProjectId))
-              .then((rows) => rows[0] ?? null)
-          : null;
-
-        context.paperclipKickoffPrompt = pipeline.buildKickoffPrompt(
-          {
-            title: issueRecord.title,
-            description: issueRecord.description,
-            phase: issueRecord.phase,
-            pipelineRole: issueRecord.pipelineRole,
-          },
-          { name: projectRecord?.name ?? "Unknown" },
-          { cwd: executionWorkspace.cwd },
-        );
-      }
-    }
-```
-
-Note: Make sure `projects` is imported from the schema. Add the import if not present.
-
-- [ ] **Step 3: Run the typecheck**
-
-Run: `npx tsc --noEmit`
-Expected: PASS
-
-- [ ] **Step 4: Commit**
+- [ ] **Step 2: Verify the company package can be previewed by Paperclip**
 
 ```bash
-git add server/src/services/heartbeat.ts
-git commit -m "feat: inject pipeline kickoff prompt into heartbeat context"
+paperclipai company import ./company-package --dry-run
 ```
 
----
+Expected: Preview output showing company, agents, no errors.
 
-### Task 9: Verify Full Build and Existing Tests
+- [ ] **Step 3: Remove the old code-change plan if it was committed**
 
-**Files:** None (verification only)
+The old plan at `docs/superpowers/plans/2026-03-30-paperclip-uaw-integration.md` described core code changes. Update it to note it's been superseded by this configuration-only approach.
 
-- [ ] **Step 1: Run the full typecheck across the monorepo**
-
-Run: `pnpm typecheck` (or `pnpm -r exec tsc --noEmit`)
-Expected: PASS — no type errors
-
-- [ ] **Step 2: Run the full test suite**
-
-Run: `pnpm test`
-Expected: PASS — all existing tests pass, new pipeline tests pass
-
-- [ ] **Step 3: Run the build**
-
-Run: `pnpm build`
-Expected: PASS — clean build
-
-- [ ] **Step 4: Commit any fixups if needed, then tag completion**
-
-If any issues were found and fixed:
+- [ ] **Step 4: Final commit**
 
 ```bash
 git add -A
-git commit -m "fix: resolve build/test issues from pipeline integration"
+git commit -m "docs: finalize Paperclip + UAW v3 integration package (config only)"
 ```
