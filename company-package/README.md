@@ -1,5 +1,20 @@
 # Ker's Lab — Paperclip Company Package
 
+## Design Philosophy
+
+### Layered Architecture
+
+```
+Layer 1: Paperclip        — coordinates, records, enforces workflow
+Layer 2: UAW v3           — defines roles, steps, constraints (in each repo)
+Layer 3: Execution agents — do the work, follow UAW
+Layer 4: Validation       — tests, evaluators, rubrics (outside Paperclip)
+Layer 5: Output sinks     — GitHub, CMS, datasets
+```
+
+**Critical rule:** Paperclip never decides correctness. The coordinator is a
+state machine — it routes tasks, it does not judge them.
+
 ## Prerequisites
 
 1. Paperclip server running (`paperclipai run`)
@@ -13,22 +28,17 @@
 paperclipai company import ./company-package --new-company-name "Ker's Lab"
 ```
 
-This creates the company with template agents. The agents need per-project
-configuration before they can work.
+This creates the company with template agents.
 
-### 2. For each project, create project-specific agents
+### 2. For each project, create per-project agents
 
-Agents are registered per-project with project-specific configs. Use the
-Paperclip API or CLI.
-
-Example for TFLabs (Python project):
+Agents are registered per-project. Example for TFLabs:
 
 ```bash
-# Create the project with workspace
+# Create project with workspace
 # POST /api/companies/{companyId}/projects
 # {
 #   "name": "TFLabs",
-#   "description": "Python AI/LangGraph platform",
 #   "workspace": {
 #     "sourceType": "local_path",
 #     "cwd": "/path/to/tflabs",
@@ -36,61 +46,77 @@ Example for TFLabs (Python project):
 #   }
 # }
 
-# Create per-project agent instances
+# Create coordinator
 # POST /api/companies/{companyId}/agents
-# {
-#   "name": "Claude-TFLabs",
-#   "role": "engineer",
-#   "adapterType": "claude_local",
-#   "adapterConfig": {
-#     "cwd": "/path/to/tflabs",
-#     "model": "claude-sonnet-4-6"
-#   },
-#   "budgetMonthlyCents": 5000
-# }
+# { "name": "Coordinator-TFLabs", "role": "pm", "adapterType": "claude_local",
+#   "adapterConfig": { "cwd": "/path/to/tflabs", "model": "claude-sonnet-4-6" },
+#   "budgetMonthlyCents": 1000 }
 
-# Repeat for Codex-TFLabs, AntiGrav-TFLabs, Gemini-TFLabs as needed
+# Create execution agents
+# { "name": "Claude-TFLabs", "role": "engineer", "adapterType": "claude_local",
+#   "adapterConfig": { "cwd": "/path/to/tflabs", "model": "claude-sonnet-4-6" },
+#   "budgetMonthlyCents": 5000 }
+
+# { "name": "Codex-TFLabs", "role": "engineer", "adapterType": "codex_local",
+#   "adapterConfig": { "cwd": "/path/to/tflabs" },
+#   "budgetMonthlyCents": 3000 }
+
+# Repeat for AntiGrav-TFLabs, Gemini-TFLabs as needed
 ```
 
-### 3. Copy UAW templates into each project repo
+### 3. Create pipeline config
 
 ```bash
-cp -r UAW-v3/uaw-templates/ /path/to/project/
+cp company-package/pipelines/template.yaml ~/.paperclip/pipelines/tflabs.yaml
 ```
 
-Edit `resume.md` with the project state and `pipeline-config.yaml` with
-the agent names you registered (e.g., `Claude-TFLabs`, `Codex-TFLabs`).
+Edit `~/.paperclip/pipelines/tflabs.yaml` — replace agent name placeholders
+with the names you registered (e.g., `Claude-TFLabs`, `Codex-TFLabs`).
 
-### 4. Create your first task
+### 4. Copy UAW templates into the project repo
 
-In the Paperclip UI or CLI, create an issue assigned to the appropriate
-agent based on the project's pipeline-config.yaml role map.
+```bash
+cp -r UAW-v3/uaw-templates/ /path/to/tflabs/
+```
 
-## Pipeline Workflow (Manual)
+Edit `resume.md` with the project state.
 
-Until Paperclip gains native pipeline routing, follow this process:
+### 5. Create your first task
 
-1. **You** evaluate the project and decide what to do
-2. **You** create a Paperclip issue with title, description
-3. **You** check the project's `pipeline-config.yaml` for phase rules
-4. **For production/durable phases:**
-   a. Assign to the spec_writer agent — wait for completion
-   b. (Optional) Assign to spec_validator agent — wait for review
-   c. Review and approve the spec yourself
-   d. Assign to the executor agent — wait for completion
-   e. Assign to the reviewer agent — wait for validation
-   f. Review and approve the result
-5. **For exploratory phases:**
-   a. Assign directly to executor agent — review when done
-6. **For structural phases:**
-   a. Assign to spec_writer — approve spec — assign to executor — review
+Create a Paperclip issue:
+- Title: "Implement feature X" (or reference a spec: "See specs/feature-x.md")
+- Phase: production (or exploratory, structural, durable_knowledge)
+- Assign to: Coordinator-TFLabs
 
-## Role Map Reference
+The coordinator reads the pipeline config, creates sub-tasks for each stage,
+assigns agents, and pauses at approval gates for your review.
 
-Each project's `pipeline-config.yaml` is the authoritative source for role
-assignments. Any agent can fill any role — the config decides.
+## How the Pipeline Runs
 
-Default roles from the template:
+```
+You create task → assign to Coordinator-TFLabs → set phase
+
+Coordinator reads ~/.paperclip/pipelines/tflabs.yaml
+For production phase:
+
+  [spec_writer] → Codex-TFLabs writes the spec
+     ↓ approval gate — you review the spec
+  [spec_validator] → Claude-TFLabs validates the spec
+     ↓
+  [executor] → Claude-TFLabs implements
+     ↓
+  [reviewer] → AntiGrav-TFLabs validates result
+     ↓ approval gate — you review the result
+
+  Parent task → in_review → you do final sign-off → done
+```
+
+For exploratory: coordinator assigns executor only, you review when done.
+For structural: spec_writer → executor, you review when done.
+
+## Role Map
+
+Any agent can fill any role. The pipeline config decides:
 
 | Role | What it does |
 |------|-------------|
@@ -99,22 +125,12 @@ Default roles from the template:
 | executor | Implement the work |
 | reviewer | Validate against done condition |
 
-Example pipeline-config.yaml assignment:
-```yaml
-role_assignments:
-  spec_writer: "Codex-TFLabs"
-  spec_validator: "Claude-TFLabs"
-  executor: "Claude-TFLabs"
-  reviewer: "AntiGrav-TFLabs"
-```
+Change assignments anytime by editing `~/.paperclip/pipelines/{project}.yaml`.
 
-You can assign any agent to any role. Claude can be the spec_writer on one
-project and the reviewer on another.
+## Onboarding a New Project
 
-## Graduating to Automation
-
-When Paperclip adds native pipeline routing:
-1. The `pipeline-config.yaml` format becomes machine-readable project config
-2. Paperclip auto-creates sub-tasks per pipeline stage
-3. Paperclip auto-assigns agents based on the role map
-4. You only intervene at approval gates
+1. Copy UAW templates into the repo
+2. Create the Paperclip project with workspace
+3. Register per-project agents (coordinator + execution agents)
+4. Create pipeline config at `~/.paperclip/pipelines/{project}.yaml`
+5. Create first task and assign to coordinator
