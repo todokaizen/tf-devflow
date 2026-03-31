@@ -1,0 +1,42 @@
+schema: paperclip/v1
+
+# Agent adapter configurations.
+# These are TEMPLATES — when importing for a specific project, update:
+#   - cwd paths to point to the actual project repo
+#   - budget values for the project
+#   - model choices if needed
+#
+# Agents are role-agnostic. Any agent can fill any pipeline role
+# (spec_writer, spec_validator, executor, reviewer). Role assignment
+# is configured per-project in pipeline-config.yaml.
+
+agents:
+  claude:
+    adapter:
+      type: claude_local
+      config:
+        cwd: "{{PROJECT_REPO_PATH}}"
+        model: claude-sonnet-4-6
+        maxTurnsPerRun: 300
+        dangerouslySkipPermissions: false
+
+  codex:
+    adapter:
+      type: codex_local
+      config:
+        cwd: "{{PROJECT_REPO_PATH}}"
+        dangerouslyBypassApprovalsAndSandbox: false
+
+  antigravity:
+    adapter:
+      type: process
+      config:
+        command: "antigravity"
+        cwd: "{{PROJECT_REPO_PATH}}"
+        timeoutSec: 300
+
+  gemini:
+    adapter:
+      type: gemini_local
+      config:
+        cwd: "{{PROJECT_REPO_PATH}}"
