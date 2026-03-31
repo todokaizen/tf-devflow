@@ -1,0 +1,43 @@
+schema: "paperclip/v1"
+agents:
+  coordinator:
+    role: "pm"
+    adapter:
+      type: "claude_local"
+      config:
+        model: "claude-sonnet-4-6"
+        maxTurnsPerRun: 100
+        dangerouslySkipPermissions: false
+    permissions:
+      canCreateAgents: false
+  claude:
+    role: "engineer"
+    adapter:
+      type: "claude_local"
+      config:
+        model: "claude-sonnet-4-6"
+        maxTurnsPerRun: 300
+        dangerouslySkipPermissions: false
+  codex:
+    role: "engineer"
+    adapter:
+      type: "codex_local"
+      config:
+        dangerouslyBypassApprovalsAndSandbox: false
+  antigravity:
+    role: "engineer"
+    adapter:
+      type: "process"
+      config:
+        command: "antigravity"
+        timeoutSec: 300
+  gemini:
+    role: "engineer"
+    adapter:
+      type: "gemini_local"
+      config: {}
+sidebar:
+  agents:
+    - "coordinator"
+    - "claude"
+    - "codex"

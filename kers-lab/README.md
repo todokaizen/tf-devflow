@@ -25,7 +25,7 @@ state machine — it routes tasks, it does not judge them.
 ### 1. Import the company
 
 ```bash
-paperclipai company import ./company-package --new-company-name "Ker's Lab"
+paperclipai company import ./kers-lab --new-company-name "Ker's Lab"
 ```
 
 This creates the company with template agents.
@@ -67,7 +67,7 @@ Agents are registered per-project. Example for TFLabs:
 ### 3. Create pipeline config
 
 ```bash
-cp company-package/pipelines/template.yaml ~/.paperclip/pipelines/tflabs.yaml
+cp kers-lab/pipelines/template.yaml ~/.paperclip/pipelines/tflabs.yaml
 ```
 
 Edit `~/.paperclip/pipelines/tflabs.yaml` — replace agent name placeholders
