@@ -1,0 +1,45 @@
+schema: "paperclip/v1"
+agents:
+  coordinator:
+    role: "pm"
+    adapter:
+      type: "claude_local"
+      config:
+        model: "claude-sonnet-4-6"
+        maxTurnsPerRun: 100
+        dangerouslySkipPermissions: false
+    permissions:
+      canCreateAgents: false
+  fe:
+    role: "engineer"
+    adapter:
+      type: "claude_local"
+      config:
+        model: "claude-sonnet-4-6"
+        maxTurnsPerRun: 300
+        dangerouslySkipPermissions: false
+  content:
+    role: "general"
+    adapter:
+      type: "claude_local"
+      config:
+        model: "claude-sonnet-4-6"
+        maxTurnsPerRun: 200
+        dangerouslySkipPermissions: false
+projects:
+  nine-human-needs:
+    status: "in_progress"
+    workspaces:
+      nine-human-needs:
+        name: "nine-human-needs"
+        isPrimary: true
+        sourceType: "local_path"
+        cwd: "/Users/ker/_Projects/Active/9HumanNeeds/nine-human-needs"
+        visibility: "default"
+sidebar:
+  agents:
+    - "coordinator"
+    - "fe"
+    - "content"
+  projects:
+    - "nine-human-needs"
