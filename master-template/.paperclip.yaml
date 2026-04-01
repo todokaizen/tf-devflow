@@ -10,7 +10,7 @@ agents:
         dangerouslySkipPermissions: false
     permissions:
       canCreateAgents: false
-  claude:
+  python:
     role: "engineer"
     adapter:
       type: "claude_local"
@@ -18,26 +18,48 @@ agents:
         model: "claude-sonnet-4-6"
         maxTurnsPerRun: 300
         dangerouslySkipPermissions: false
-  codex:
+  fe:
     role: "engineer"
     adapter:
-      type: "codex_local"
+      type: "claude_local"
       config:
-        dangerouslyBypassApprovalsAndSandbox: false
-  antigravity:
-    role: "engineer"
+        model: "claude-sonnet-4-6"
+        maxTurnsPerRun: 300
+        dangerouslySkipPermissions: false
+  devops:
+    role: "devops"
     adapter:
-      type: "process"
+      type: "claude_local"
       config:
-        command: "antigravity"
-        timeoutSec: 300
-  gemini:
+        model: "claude-sonnet-4-6"
+        maxTurnsPerRun: 200
+        dangerouslySkipPermissions: false
+  content:
+    role: "general"
+    adapter:
+      type: "claude_local"
+      config:
+        model: "claude-sonnet-4-6"
+        maxTurnsPerRun: 200
+        dangerouslySkipPermissions: false
+  research:
+    role: "researcher"
+    adapter:
+      type: "claude_local"
+      config:
+        model: "claude-sonnet-4-6"
+        maxTurnsPerRun: 300
+        dangerouslySkipPermissions: false
+  crypto:
     role: "engineer"
     adapter:
-      type: "gemini_local"
-      config: {}
+      type: "claude_local"
+      config:
+        model: "claude-sonnet-4-6"
+        maxTurnsPerRun: 300
+        dangerouslySkipPermissions: false
 sidebar:
   agents:
     - "coordinator"
-    - "claude"
-    - "codex"
+    - "python"
+    - "fe"
