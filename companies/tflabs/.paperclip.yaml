@@ -42,6 +42,14 @@ agents:
         model: "claude-sonnet-4-6"
         maxTurnsPerRun: 300
         dangerouslySkipPermissions: false
+  debugger:
+    role: "qa"
+    adapter:
+      type: "claude_local"
+      config:
+        model: "claude-opus-4-6"
+        maxTurnsPerRun: 200
+        dangerouslySkipPermissions: false
 projects:
   tflabs-poc:
     status: "in_progress"

@@ -52,6 +52,26 @@ If `role_assignments[role]` is a list of agents (not a single agent):
 - The operator picks the best output at the approval gate
 - Proceed with the next stage
 
+## Failure Escalation to Debugger
+
+If an executor sub-task fails and is retried, track the failure count. When the
+executor has failed the number of times specified in `failure_escalation.executor_retries_before_debugger`
+in the pipeline config (default: 3):
+
+1. Do NOT retry the executor again.
+2. Create a new sub-task:
+   - Title: `[debugger] {parent_task_title}`
+   - Description: "Executor failed {N} times. Diagnose the root cause. See issue comments for failure history."
+   - Assign to: The agent named in `role_assignments[debugger]` (if configured) or the default debugger agent
+   - Set as child of the parent task
+3. Wait for the debugger to complete its diagnosis report.
+4. Create an approval request: "Debugger diagnosis complete. Review diagnosis before proceeding."
+5. Wait for operator approval.
+6. If approved, create a new executor sub-task with the diagnosis attached in the description.
+
+This is still deterministic — you count failures and route to the debugger. You do not
+judge whether the failure "deserves" a debugger. The threshold decides.
+
 ## Pipeline Completion
 
 When all stages are complete:

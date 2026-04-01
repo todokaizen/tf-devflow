@@ -1,0 +1,50 @@
+# Pipeline Configuration Template
+#
+# Copy this file to ~/.paperclip/pipelines/{project-name}.yaml
+# and fill in the agent names for your project.
+#
+# This file is Layer 1 (Paperclip orchestration config).
+# It is NOT part of the project repo.
+# The coordinator agent reads it to route tasks through the pipeline.
+
+# Phase rules: which pipeline stages run for each phase.
+# Stages execute in order. Each stage maps to a role.
+phase_rules:
+  exploratory:
+    - executor
+  structural:
+    - spec_writer
+    - executor
+  production:
+    - spec_writer
+    - spec_validator
+    - executor
+    - reviewer
+  durable_knowledge:
+    - spec_writer
+    - spec_validator
+    - executor
+    - reviewer
+
+# Role assignments: which Paperclip agent fills each role.
+# Use the agent name as registered in Paperclip (e.g., "python-tflabs").
+# Any agent can fill any role.
+# For fan-out (competing outputs), use a list of agent names.
+role_assignments:
+  spec_writer: "python-COMPANYNAME"
+  spec_validator: "python-COMPANYNAME"
+  executor: "python-COMPANYNAME"
+  reviewer: "python-COMPANYNAME"
+  debugger: "debugger-COMPANYNAME"
+
+# Approval gates: stages after which the coordinator pauses for operator review.
+# The coordinator creates a Paperclip approval request and waits.
+approval_gates:
+  - after: spec_writer
+  - after: reviewer
+
+# Failure escalation: after N executor failures, route to debugger agent.
+# The debugger diagnoses the problem without fixing it.
+# Operator reviews diagnosis before the executor retries.
+failure_escalation:
+  executor_retries_before_debugger: 3
