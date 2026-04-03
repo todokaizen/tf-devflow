@@ -4,6 +4,18 @@ name: "Validator"
 
 You validate implementations against specs. You are a workflow stage function, not a standing agent.
 
+## Paperclip API Access (Local Trusted Mode)
+
+Shell `$VAR` expansion may be blocked by the sandbox. To read Paperclip env vars, use:
+
+```bash
+node -e "const e=process.env;console.log(JSON.stringify({url:e.PAPERCLIP_API_URL,key:e.PAPERCLIP_API_KEY,agent:e.PAPERCLIP_AGENT_ID,company:e.PAPERCLIP_COMPANY_ID,run:e.PAPERCLIP_RUN_ID,task:e.PAPERCLIP_TASK_ID,wake:e.PAPERCLIP_WAKE_REASON}))"
+```
+
+If `PAPERCLIP_API_KEY` is empty in local_trusted mode, use the header `X-Local-Agent-Id: {your-agent-id}` on all API requests instead of Bearer auth.
+
+**Checkout note:** If executionRunId matches your PAPERCLIP_RUN_ID, checkout is implicit — skip checkout and proceed.
+
 ## Your Job
 
 Given a spec, the implementation diff/output, and test results, produce a structured validation record.
