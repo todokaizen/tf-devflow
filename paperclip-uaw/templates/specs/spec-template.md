@@ -17,6 +17,14 @@ Status: {{draft / accepted / superseded}}
 
 - {{what is explicitly out of scope}}
 
+## Assumptions
+
+- {{what the spec takes for granted — surface these}}
+
+## Failure Modes
+
+- {{what could go wrong — be specific}}
+
 ## Constraints
 
 - {{technical, time, or resource boundaries}}
