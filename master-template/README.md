@@ -1,142 +1,35 @@
-# Agent Template — Paperclip Company Package
+# Venture Template — Paperclip Company Package
 
-Master template for creating AI agent companies. Each company gets its own
-isolated Paperclip instance with stack-specialized agents.
+Master template for creating venture companies with the governance framework.
 
-## Design Philosophy
-
-```
-Layer 1: Paperclip        — coordinates, records, enforces workflow
-Layer 2: UAW v3           — defines roles, steps, constraints (in each repo)
-Layer 3: Execution agents — do the work, follow UAW
-Layer 4: Validation       — tests, evaluators, rubrics (outside Paperclip)
-Layer 5: Output sinks     — GitHub, CMS, datasets
-```
-
-**Critical rule:** Paperclip never decides correctness. The coordinator is a
-state machine — it routes tasks, it does not judge them.
-
-## Creating a Company
-
-### 1. Import the template
+## Import
 
 ```bash
-paperclipai company import ./master-template --new-company-name "TFLabs"
+pnpm paperclipai company import ./master-template --new-company-name "CompanyName"
 ```
 
-This creates a new Paperclip company with all 7 agent types. Deactivate
-(pause/terminate) the ones this company doesn't need.
+Then rename agents with company suffix: `venture-lead` → `ventureLead-tflabs`, etc.
 
-### 2. Rename agents with company suffix
+## Agents
 
-After import, rename agents to follow the naming convention:
+| Agent | Adapter | Purpose |
+|-------|---------|---------|
+| venture-lead | claude_local | Orchestrates workflow stages, classifies decisions |
+| spec-writer | codex_local | Writes specs from goals |
+| implementor | claude_local | Implements from specs |
+| validator | codex_local | Validates against spec + hard checks |
+| debugger | claude_local (opus) | Diagnoses repeated failures |
 
-```
-python       → python-tflabs
-fe           → fe-tflabs
-coordinator  → coordinator-tflabs
-devops       → devops-tflabs
-```
-
-Use the Paperclip UI (Agent Detail → edit name) or API.
-
-### 3. Configure per-project workspaces
-
-For each project repo, create a Paperclip project with a workspace:
-
-```bash
-# Via API:
-# POST /api/companies/{companyId}/projects
-# {
-#   "name": "TFLabs-poc",
-#   "workspace": {
-#     "sourceType": "local_path",
-#     "cwd": "/path/to/tflabs-poc",
-#     "isPrimary": true
-#   }
-# }
-```
-
-### 4. Create pipeline config
-
-```bash
-mkdir -p ~/.paperclip/pipelines
-cp master-template/pipelines/template.yaml ~/.paperclip/pipelines/tflabs-poc.yaml
-```
-
-Edit the pipeline config — set agent names to match your renamed agents:
-
-```yaml
-role_assignments:
-  spec_writer: "python-tflabs"
-  spec_validator: "python-tflabs"
-  executor: "python-tflabs"
-  reviewer: "devops-tflabs"
-```
-
-### 5. Copy UAW templates into the project repo
-
-```bash
-cp -r UAW-v3/uaw-templates/ /path/to/tflabs-poc/
-```
-
-Edit `resume.md` with the project state.
-
-### 6. Create your first task
-
-Create a Paperclip issue:
-- Title: "Implement feature X"
-- Assign to: `coordinator-tflabs`
-
-The coordinator reads the pipeline config, creates sub-tasks for each stage,
-assigns agents, and pauses at approval gates for your review.
-
-## Agent Types
-
-All agents are role-agnostic — any can serve as spec_writer, spec_validator,
-executor, or reviewer. The pipeline config decides.
-
-| Agent | Expertise |
-|-------|-----------|
-| coordinator | Pipeline state machine. Routes tasks, never judges. |
-| python | Python, LangGraph, FastAPI, agent frameworks, data pipelines |
-| fe | Next.js, React, TypeScript, Tailwind, component libraries |
-| devops | Docker, CI/CD, GitHub Actions, infrastructure |
-| content | Technical writing, docs, educational content |
-| research | Literature review, analysis, evaluation, datasets |
-| crypto | Cryptocurrency markets, trading, blockchain, DeFi |
-
-## Companies and Projects
-
-| Company | Projects |
-|---------|----------|
-| TFLabs | TFLabs-poc, TFLabs-FE, TFLabs-Evals |
-| TFEdu | TFChem, TFBio, Galileo-Circle, Galileo-Curie |
-| NHN | (TBD) |
-| TFTrading | (TBD) |
-| TFOpenBrain | (TBD) |
-
-## How the Pipeline Runs
+## Pipeline Flow
 
 ```
-You create task → assign to coordinator → set phase
+Task → VentureLead → reads pipeline config
 
-Coordinator reads ~/.paperclip/pipelines/{project}.yaml
-For production phase:
-
-  [spec_writer] → writes the spec
-     ↓ approval gate — you review
-  [spec_validator] → validates the spec
-     ↓
-  [executor] → implements
-     ↓
-  [reviewer] → validates result
-     ↓ approval gate — you review
-
-  Parent task → in_review → final sign-off → done
+  [spec-writer] → writes spec
+     ↓ HUMAN REVIEW GATE (3 checks)
+  [implementor] → implements from spec
+     ↓ if validator fails → retry up to 3x → debugger
+  [validator] → validates against spec + artifacts
+     ↓ HUMAN REVIEW GATE (result)
+  Done
 ```
-
-## Future Home
-
-These configs will move to a dedicated vault repo (TFLabs-Projects-Vault)
-once Obsidian + git coexistence is sorted out. The paperclip repo is temporary.

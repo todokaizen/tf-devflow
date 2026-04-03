@@ -1,6 +1,6 @@
 schema: "paperclip/v1"
 agents:
-  coordinator:
+  venture-lead:
     role: "pm"
     adapter:
       type: "claude_local"
@@ -10,7 +10,13 @@ agents:
         dangerouslySkipPermissions: false
     permissions:
       canCreateAgents: false
-  python:
+  spec-writer:
+    role: "engineer"
+    adapter:
+      type: "codex_local"
+      config:
+        dangerouslyBypassApprovalsAndSandbox: false
+  implementor:
     role: "engineer"
     adapter:
       type: "claude_local"
@@ -18,46 +24,12 @@ agents:
         model: "claude-sonnet-4-6"
         maxTurnsPerRun: 300
         dangerouslySkipPermissions: false
-  fe:
-    role: "engineer"
+  validator:
+    role: "qa"
     adapter:
-      type: "claude_local"
+      type: "codex_local"
       config:
-        model: "claude-sonnet-4-6"
-        maxTurnsPerRun: 300
-        dangerouslySkipPermissions: false
-  devops:
-    role: "devops"
-    adapter:
-      type: "claude_local"
-      config:
-        model: "claude-sonnet-4-6"
-        maxTurnsPerRun: 200
-        dangerouslySkipPermissions: false
-  content:
-    role: "general"
-    adapter:
-      type: "claude_local"
-      config:
-        model: "claude-sonnet-4-6"
-        maxTurnsPerRun: 200
-        dangerouslySkipPermissions: false
-  research:
-    role: "researcher"
-    adapter:
-      type: "claude_local"
-      config:
-        model: "claude-sonnet-4-6"
-        maxTurnsPerRun: 300
-        dangerouslySkipPermissions: false
-  crypto:
-    role: "engineer"
-    adapter:
-      type: "claude_local"
-      config:
-        model: "claude-sonnet-4-6"
-        maxTurnsPerRun: 300
-        dangerouslySkipPermissions: false
+        dangerouslyBypassApprovalsAndSandbox: false
   debugger:
     role: "qa"
     adapter:
@@ -68,6 +40,6 @@ agents:
         dangerouslySkipPermissions: false
 sidebar:
   agents:
-    - "coordinator"
-    - "python"
-    - "fe"
+    - "venture-lead"
+    - "implementor"
+    - "spec-writer"

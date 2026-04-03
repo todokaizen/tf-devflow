@@ -1,46 +1,25 @@
 ---
-name: "Agent Template"
+name: "Venture Template"
 schema: "agentcompanies/v1"
-slug: "agent-template"
+slug: "venture-template"
 ---
 
-Master template for creating AI agent companies. Import this once per company,
-activating only the agents each company needs.
+Master template for creating venture companies. Import once per venture, rename agents with company suffix.
 
-## Companies
+## Agents
 
-| Company | Focus | Key Agents |
-|---------|-------|------------|
-| TFLabs | AI/LangGraph platform | python, fe, devops, research, coordinator |
-| TFEdu | Education platforms | python, content, research, coordinator |
-| NHN | Nine Human Needs (content/web) | fe, content, coordinator |
-| TFTrading | Crypto trading | python, crypto, coordinator |
-| TFOpenBrain | Open research platform | python, devops, research, coordinator |
+| Agent | Role | Adapter | Purpose |
+|-------|------|---------|---------|
+| venture-lead | PM | claude_local | Orchestrates workflow, classifies decisions, manages lifecycle |
+| spec-writer | Engineer | codex_local | Writes specs from goals and constraints |
+| implementor | Engineer | claude_local | Implements from specs |
+| validator | QA | codex_local | Validates against spec + objective artifacts |
+| debugger | QA | claude_local (opus) | Diagnoses repeated failures |
 
-## Agent Activation Matrix
+## Governance
 
-| Agent | TFLabs | TFEdu | NHN | TFTrading | TFOpenBrain |
-|-------|--------|-------|-----|-----------|-------------|
-| coordinator | yes | yes | yes | yes | yes |
-| python | yes | yes | - | yes | yes |
-| fe | yes | - | yes | - | - |
-| devops | yes | - | - | - | yes |
-| content | - | yes | yes | - | - |
-| research | yes | yes | - | - | yes |
-| crypto | - | - | - | yes | - |
+3-type decision classification (routine/significant/critical) with self-check and escalation. See CLAUDE.md in each project repo for the full contract.
 
-## Design Philosophy
+## Pipeline
 
-### Layered Architecture
-
-1. **Paperclip (orchestration)** — task routing, scheduling, approvals, audit logs
-2. **UAW (workflow manifest)** — roles, allowed actions, required steps, constraints
-3. **Execution agents** — do the work, follow UAW in each repo
-4. **Validation (outside Paperclip)** — tests, evaluators, rubrics, policy checks
-5. **Output sinks** — GitHub, CMS, datasets, Open Brain
-
-### Critical Rule
-
-Paperclip never decides correctness. It coordinates, records, and enforces
-workflow. Correctness comes from validation systems, evaluation pipelines,
-and policy rules — all outside Paperclip.
+VentureLead dispatches workflow stages as sub-tasks. Each stage runs in a separate context with a separate model. Human reviews spec before implementation and result after validation.
