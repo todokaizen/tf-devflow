@@ -85,6 +85,18 @@ In Paperclip UI, create an issue in the project and assign it to the VentureLead
 
 The VentureLead takes it from there.
 
+### Step 7: Run health check
+
+Verify everything is in place:
+
+```bash
+./paperclip-uaw/healthcheck.sh /path/to/project {project-slug}
+```
+
+This checks UAW files, git repo, pipeline config, API keys, and Paperclip server status. It writes `.uaw-healthcheck.json` to the project directory — agents read this on session start and will flag any warnings in their first issue comment.
+
+Re-run after making changes to confirm gaps are resolved.
+
 ---
 
 ## Creating and Assigning Issues

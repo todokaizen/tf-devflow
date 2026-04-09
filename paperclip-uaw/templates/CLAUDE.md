@@ -28,11 +28,31 @@ Before any implementation:
 1. Read `resume.md`
 2. Read `decisions.md`
 3. Read the active spec referenced in resume.md (if any)
-4. Check Paperclip for new issues or priority changes
-5. Report current project state and active task
-6. Begin at the Next Action stated in resume.md
+4. Read `.uaw-healthcheck.json` if it exists (see Config Health Check below)
+5. Check Paperclip for new issues or priority changes
+6. Report current project state and active task
+7. Begin at the Next Action stated in resume.md
 
 If resume.md has no Resume Point yet, ask what to work on.
+
+### Config Health Check
+
+If `.uaw-healthcheck.json` exists in the project root, read it. If there are
+warnings or missing items, note them in your first issue comment as:
+
+```
+[CONFIG] 3 ok, 2 warnings, 0 missing
+[CONFIG WARNING] resume.md has unfilled {{placeholders}}
+[CONFIG WARNING] pipeline config missing at ~/.paperclip/pipelines/{project}.yaml
+```
+
+This is informational — do not block on warnings. Continue with available
+context but flag gaps so the operator can address them. If critical files are
+missing (CLAUDE.md, resume.md), note that you are operating without the full
+UAW contract and may produce incomplete session protocol compliance.
+
+If `.uaw-healthcheck.json` does not exist, proceed normally — the operator
+may not have run the health check yet.
 
 ---
 
