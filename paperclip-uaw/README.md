@@ -33,14 +33,21 @@ paperclip-uaw/
 
 ## Usage
 
-Copy templates into any project repo:
+Install UAW into any project directory:
 
 ```bash
-cp -r paperclip-uaw/templates/ /path/to/project/
+./paperclip-uaw/install.sh /path/to/project "Project Name"
 ```
+
+This copies all template files, creates the `specs/` and `archive/` directories,
+and replaces `{{PROJECT_NAME}}` placeholders. If the project name is omitted,
+the directory basename is used.
 
 Then fill in `resume.md` with the project state. Agents read `CLAUDE.md` on
 startup and follow the UAW protocol autonomously.
+
+To update templates across projects, edit the files in `templates/` and re-run
+the installer (it will prompt before overwriting existing files).
 
 ## Amendments (v1)
 
