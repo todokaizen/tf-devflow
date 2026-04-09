@@ -1,0 +1,32 @@
+# Pipeline Config: Galileo's Circle (WebSites company)
+
+phase_rules:
+  exploratory:
+    - executor
+  structural:
+    - spec_writer
+    - executor
+  production:
+    - spec_writer
+    - spec_validator
+    - executor
+    - reviewer
+  durable_knowledge:
+    - spec_writer
+    - spec_validator
+    - executor
+    - reviewer
+
+role_assignments:
+  spec_writer: "SpecWriter"
+  spec_validator: "Validator"
+  executor: "Implementor"
+  reviewer: "Validator"
+  debugger: "Debugger"
+
+approval_gates:
+  - after: spec_writer
+  - after: reviewer
+
+failure_escalation:
+  executor_retries_before_debugger: 3

@@ -288,7 +288,13 @@ Agent detail page → Runs tab → click a run to see full stdout/stderr, token 
 
 ### Update a pipeline config
 
-Edit `~/.paperclip/pipelines/{project}.yaml` directly. Changes take effect on the next VentureLead wake — no restart needed.
+Edit the config in `pipelines/{project}.yaml` (version-controlled), then sync:
+
+```bash
+./paperclip-uaw/sync-pipelines.sh
+```
+
+Changes take effect on the next VentureLead wake — no restart needed.
 
 ### Add a new venture company
 
@@ -299,6 +305,27 @@ Edit `~/.paperclip/pipelines/{project}.yaml` directly. Changes take effect on th
 5. Attach workspaces (see Step 3 above)
 6. Create pipeline config for each project
 7. Install UAW templates in each project repo
+
+---
+
+## Recovery (if ~/.paperclip is erased)
+
+Everything needed to rebuild is version-controlled in this repo. Run:
+
+```bash
+./paperclip-uaw/recover.sh
+```
+
+This automatically:
+1. Starts Paperclip (fresh DB, all migrations)
+2. Imports all company packages from `companies/`
+3. Syncs pipeline configs from `pipelines/` to `~/.paperclip/pipelines/`
+
+After recovery, manually:
+- Attach workspaces for each project (see Step 3 above)
+- Run healthcheck on each project
+
+**What is NOT recoverable:** run history (logs, token usage, costs), issue state (tasks, comments, approvals), and workspace attachments. Project state survives in the repos via `resume.md` and `decisions.md` — agents can resume from where they left off.
 
 ---
 
